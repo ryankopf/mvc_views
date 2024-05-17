@@ -1,0 +1,21 @@
+[package]
+name = "mvc_views"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ryan Kopf <github@ryankopf.com>"]
+description = "A procedural macro to append rendering blocks to Actix Web handler functions."
+license = "MIT"
+repository = "https://github.com/ryankopf/mvc_views"
+homepage = "https://github.com/ryankopf/mvc_views"
+documentation = "https://docs.rs/mvc_views"
+readme = "README.md"
+keywords = ["actix-web", "procedural-macro", "rendering", "mvc"]
+categories = ["web-programming", "macros"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0"
+syn = { version = "1.0", features = ["full"] }
+proc-macro2 = "1.0"
