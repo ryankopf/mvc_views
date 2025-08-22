@@ -36,51 +36,31 @@ fn rewrite_fn(mut func: ItemFn) -> Item {
     }).unwrap_or(false);
 
     if !ends_with_value {
-        let tail: Stmt = if has_replacements {
-            syn::parse_quote! {{
-                use std::path::Path;
-                let controller: String = {
-                    let p = Path::new(file!());
-                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-                    if stem == "mod" {
-                        p.parent()
-                            .and_then(|pp| pp.file_name())
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown")
-                            .to_string()
-                    } else { stem.to_string() }
-                };
-                let view_name = stringify!(#ident);
-                let form_path = format!("./src/views/{}/{}.html", controller, view_name);
-                let content = std::fs::read_to_string(&form_path).unwrap_or_default();
-                let content = crate::renderer::render(content, &host, Some(replacements));
-                return HttpResponse::Ok().content_type("text/html").body(content);
-            }}
+        let replacement_hashmap = if has_replacements {
+            quote! { Some(replacements.clone()) }
         } else {
-            syn::parse_quote! {{
-                use std::path::Path;
-                let controller: String = {
-                    let p = Path::new(file!());
-                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
-                    if stem == "mod" {
-                        p.parent()
-                            .and_then(|pp| pp.file_name())
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown")
-                            .to_string()
-                    } else { stem.to_string() }
-                };
-                let view_name = stringify!(#ident);
-                let form_path = format!("./src/views/{}/{}.html", controller, view_name);
-                let content = std::fs::read_to_string(&form_path).unwrap_or_default();
-                let content = crate::renderer::render(
-                    content,
-                    &host,
-                    None::<std::collections::HashMap<String, String>>
-                );
-                return HttpResponse::Ok().content_type("text/html").body(content);
-            }}
+            quote! { None::<std::collections::HashMap<String, String>> }
         };
+        let tail: Stmt = syn::parse_quote! {{
+            use std::path::Path;
+            let controller: String = {
+                let p = Path::new(file!());
+                let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                if stem == "mod" {
+                    p.parent()
+                        .and_then(|pp| pp.file_name())
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                } else { stem.to_string() }
+            };
+            let view_name = stringify!(#ident);
+            let form_path = format!("./src/views/{}/{}.html", controller, view_name);
+            let content = std::fs::read_to_string(&form_path).unwrap_or_default();
+            println!("Replacements: {:?}", #replacement_hashmap);
+            let content = crate::renderer::render(content, &host, #replacement_hashmap);
+            return HttpResponse::Ok().content_type("text/html").body(content);
+        }};
         func.block.stmts.push(tail);
     }
 
