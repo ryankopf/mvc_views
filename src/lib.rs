@@ -2,63 +2,101 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, ItemMod, File, Item, Stmt};
+use syn::{parse_macro_input, Block, Expr, File, Item, ItemFn, Local, Pat, Stmt};
 
 #[proc_macro_attribute]
 pub fn mvc_views(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as File);
-
     let mut new_items = vec![];
 
     for item in input.items {
-        if let Item::Fn(mut func) = item {
-            let name = func.sig.ident.to_string();
-
-            // Inject a default params definition at the start of the function
-            let default_replacements: Stmt = syn::parse_quote! {
-                let replacements: Option<std::collections::HashMap<String, String>> = None;
-                // let mut replacements = HashMap::new();
-            };
-            func.block.stmts.insert(0, default_replacements);
-
-            // Check if the function already ends with a value
-            let last_stmt = func.block.stmts.last();
-            let ends_with_value = match last_stmt {
-                Some(syn::Stmt::Expr(_)) => true,
-                Some(syn::Stmt::Semi(expr, _)) => match *expr {
-                    syn::Expr::Return(_) => true,
-                    syn::Expr::Block(_) => true,
-                    syn::Expr::Call(_) => true,
-                    _ => false,
-                },
-                _ => false,
-            };
-
-            if !ends_with_value {
-                let block: Stmt = syn::parse_quote! {
-                    {
-                        let form_path = format!("./src/views/emails/{}.html", #name);
-                        let content = std::fs::read_to_string(&form_path).unwrap_or_default();
-                        let content = crate::renderer::render(content, &host, replacements.into());
-                        return HttpResponse::Ok()
-                            .content_type("text/html")
-                            .body(content);
-                    }
-                };
-                func.block.stmts.push(block);
-            }
-
-            new_items.push(Item::Fn(func));
+        if let Item::Fn(func) = item {
+            new_items.push(rewrite_fn(func));
         } else {
             new_items.push(item);
         }
     }
 
-    let output = File {
-        shebang: input.shebang,
-        attrs: input.attrs,
-        items: new_items,
-    };
-
+    let output = File { shebang: input.shebang, attrs: input.attrs, items: new_items };
     TokenStream::from(quote!(#output))
 }
+
+fn rewrite_fn(mut func: ItemFn) -> Item {
+    let ident = func.sig.ident.clone();
+    let has_replacements = block_has_local_named(&func.block, "replacements");
+
+    // Does function already end with a value?
+    let ends_with_value = func.block.stmts.last().map(|s| match s {
+        Stmt::Expr(_) => true,
+        Stmt::Semi(expr, _) => matches!(
+            expr,
+            Expr::Return(_) | Expr::Block(_) | Expr::Call(_)
+        ),
+        _ => false,
+    }).unwrap_or(false);
+
+    if !ends_with_value {
+        let tail: Stmt = if has_replacements {
+            syn::parse_quote! {{
+                use std::path::Path;
+                let controller: String = {
+                    let p = Path::new(file!());
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                    if stem == "mod" {
+                        p.parent()
+                            .and_then(|pp| pp.file_name())
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string()
+                    } else { stem.to_string() }
+                };
+                let view_name = stringify!(#ident);
+                let form_path = format!("./src/views/{}/{}.html", controller, view_name);
+                let content = std::fs::read_to_string(&form_path).unwrap_or_default();
+                let content = crate::renderer::render(content, &host, Some(replacements));
+                return HttpResponse::Ok().content_type("text/html").body(content);
+            }}
+        } else {
+            syn::parse_quote! {{
+                use std::path::Path;
+                let controller: String = {
+                    let p = Path::new(file!());
+                    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                    if stem == "mod" {
+                        p.parent()
+                            .and_then(|pp| pp.file_name())
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("unknown")
+                            .to_string()
+                    } else { stem.to_string() }
+                };
+                let view_name = stringify!(#ident);
+                let form_path = format!("./src/views/{}/{}.html", controller, view_name);
+                let content = std::fs::read_to_string(&form_path).unwrap_or_default();
+                let content = crate::renderer::render(
+                    content,
+                    &host,
+                    None::<std::collections::HashMap<String, String>>
+                );
+                return HttpResponse::Ok().content_type("text/html").body(content);
+            }}
+        };
+        func.block.stmts.push(tail);
+    }
+
+    Item::Fn(func)
+}
+
+fn block_has_local_named(block: &Block, name: &str) -> bool {
+    for stmt in &block.stmts {
+        if let Stmt::Local(Local { pat, .. }) = stmt {
+            if let Pat::Ident(pat_ident) = pat {
+                if pat_ident.ident == name {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
