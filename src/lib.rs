@@ -57,7 +57,7 @@ fn rewrite_fn(mut func: ItemFn) -> Item {
             let view_name = stringify!(#ident);
             let form_path = format!("./src/views/{}/{}.html", controller, view_name);
             let content = std::fs::read_to_string(&form_path).unwrap_or_default();
-            let content = crate::renderer::render(content, &host, #replacement_hashmap);
+            let content = crate::renderer::render(content, &host, #replacement_hashmap, None);
             return HttpResponse::Ok().content_type("text/html").body(content);
         }};
         func.block.stmts.push(tail);

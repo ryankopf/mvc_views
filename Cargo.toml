@@ -1,6 +1,6 @@
 [package]
 name = "mvc_views"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 authors = ["Ryan Kopf <github@ryankopf.com>"]
 description = "A procedural macro to append rendering blocks to Actix Web handler functions."
